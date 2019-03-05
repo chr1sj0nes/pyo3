@@ -35,6 +35,7 @@ You can get an instance of `PyRef` by `PyRef::new`, which does 3 things:
 You can use `PyRef` just like `&T`, because it implements `Deref<Target=T>`.
 ```rust
 # use pyo3::prelude::*;
+# use pyo3::types::PyDict;
 #[pyclass]
 struct MyClass {
    num: i32,
@@ -44,9 +45,9 @@ let gil = Python::acquire_gil();
 let py = gil.python();
 let obj = PyRef::new(py, MyClass { num: 3, debug: true }).unwrap();
 assert_eq!(obj.num, 3);
-let dict = PyDict::new();
+let dict = PyDict::new(py);
 // You can treat a `PyRef` as a Python object
-dict.set_item("obj", obj)).unwrap();
+dict.set_item("obj", obj).unwrap();
 ```
 
 ### `PyRefMut`
@@ -76,7 +77,8 @@ struct MyClass {
 }
 fn return_myclass() -> Py<MyClass> {
     let gil = Python::acquire_gil();
-    Py::new(|| MyClass { num: 1 })
+    let py = gil.python();
+    Py::new(py, MyClass { num: 1 }).unwrap()
 }
 let gil = Python::acquire_gil();
 let obj = return_myclass();
@@ -118,12 +120,12 @@ struct MyClass {
 impl MyClass {
 
      #[new]
-     fn __new__(obj: &PyRawObject, num: i32) -> PyResult<()> {
+     fn new(obj: &PyRawObject, num: i32) {
          obj.init({
              MyClass {
                  num,
              }
-         })
+         });
      }
 }
 ```
@@ -144,8 +146,8 @@ Rules for the `new` method:
 
 By default `PyObject` is used as default base class. To override default base class
 `base` parameter for `class` needs to be used. Value is full path to base class.
-`__new__` method accepts `PyRawObject` object. `obj` instance must be initialized
-with value of custom class struct. Subclass must call parent's `__new__` method.
+`new` method accepts `PyRawObject` object. `obj` instance must be initialized
+with value of custom class struct. Subclass must call parent's `new` method.
 
 ```rust
 # use pyo3::prelude::*;
@@ -158,8 +160,8 @@ struct BaseClass {
 #[pymethods]
 impl BaseClass {
    #[new]
-   fn __new__(obj: &PyRawObject) -> PyResult<()> {
-       Ok(obj.init(BaseClass{ val1: 10 }))
+   fn new(obj: &PyRawObject) {
+       obj.init(BaseClass{ val1: 10 });
    }
 
    pub fn method(&self) -> PyResult<()> {
@@ -175,9 +177,9 @@ struct SubClass {
 #[pymethods]
 impl SubClass {
    #[new]
-   fn __new__(obj: &PyRawObject) -> PyResult<()> {
+   fn new(obj: &PyRawObject) {
        obj.init(SubClass{ val2: 10 });
-       BaseClass::__new__(obj)
+       BaseClass::new(obj);
    }
 
    fn method2(&self) -> PyResult<()> {
@@ -279,7 +281,7 @@ For simple cases you can also define getters and setters in your Rust struct fie
 # use pyo3::prelude::*;
 #[pyclass]
 struct MyClass {
-  #[prop(get, set)]
+  #[pyo3(get, set)]
   num: i32
 }
 ```
@@ -345,6 +347,7 @@ with`#[classmethod]` attribute.
 
 ```rust
 # use pyo3::prelude::*;
+# use pyo3::types::PyType;
 # #[pyclass]
 # struct MyClass {
 #    num: i32,
@@ -469,7 +472,7 @@ with `#[pyproto]` attribute.
 
 ### Basic object customization
 
-[`PyObjectProtocol`](https://docs.rs/pyo3/0.6.0-alpha.2/class/basic/trait.PyObjectProtocol.html) trait provide several basic customizations.
+[`PyObjectProtocol`](https://docs.rs/pyo3/0.6.0-alpha.4/class/basic/trait.PyObjectProtocol.html) trait provide several basic customizations.
 
 #### Attribute access
 
@@ -533,7 +536,7 @@ Each methods corresponds to python's `self.attr`, `self.attr = value` and `del s
 If your type owns references to other python objects, you will need to
 integrate with Python's garbage collector so that the GC is aware of
 those references.
-To do this, implement [`PyGCProtocol`](https://docs.rs/pyo3/0.6.0-alpha.2/class/gc/trait.PyGCProtocol.html) trait for your struct.
+To do this, implement [`PyGCProtocol`](https://docs.rs/pyo3/0.6.0-alpha.4/class/gc/trait.PyGCProtocol.html) trait for your struct.
 It includes two methods `__traverse__` and `__clear__`.
 These correspond to the slots `tp_traverse` and `tp_clear` in the Python C API.
 `__traverse__` must call `visit.call()` for each reference to another python object.
@@ -543,6 +546,8 @@ as every cycle must contain at least one mutable reference.
 Example:
 ```rust
 use pyo3::prelude::*;
+use pyo3::PyTraverseError;
+use pyo3::gc::{PyGCProtocol, PyVisit};
 
 #[pyclass]
 struct ClassWithGCSupport {
@@ -561,7 +566,9 @@ impl PyGCProtocol for ClassWithGCSupport {
     fn __clear__(&mut self) {
         if let Some(obj) = self.obj.take() {
           // Release reference, this decrements ref counter.
-          self.py().release(obj);
+          let gil = GILGuard::acquire();
+          let py = gil.python();
+          py.release(obj);
         }
     }
 }
@@ -576,7 +583,7 @@ collector, and it is possible to track them with `gc` module methods.
 ### Iterator Types
 
 Iterators can be defined using the
-[`PyIterProtocol`](https://docs.rs/pyo3/0.6.0-alpha.2/class/iter/trait.PyIterProtocol.html) trait.
+[`PyIterProtocol`](https://docs.rs/pyo3/0.6.0-alpha.4/class/iter/trait.PyIterProtocol.html) trait.
 It includes two methods `__iter__` and `__next__`:
   * `fn __iter__(&mut self) -> PyResult<impl IntoPyObject>`
   * `fn __next__(&mut self) -> PyResult<Option<impl IntoPyObject>>`
@@ -596,11 +603,11 @@ struct MyIterator {
 
 #[pyproto]
 impl PyIterProtocol for MyIterator {
-    fn __iter__(&mut self) -> PyResult<PyObject> {
-        Ok(self.into())
+    fn __iter__(slf: PyRefMut<Self>) -> PyResult<Py<MyIterator>> {
+        Ok(slf.into())
     }
-    fn __next__(&mut self) -> PyResult<Option<PyObject>> {
-        Ok(self.iter.next())
+    fn __next__(mut slf: PyRefMut<Self>) -> PyResult<Option<PyObject>> {
+        Ok(slf.iter.next())
     }
 }
 ```

@@ -1,15 +1,14 @@
 #![feature(specialization)]
 
-use std::{isize, iter};
-
 use pyo3::class::{
     PyContextProtocol, PyIterProtocol, PyMappingProtocol, PyObjectProtocol, PySequenceProtocol,
 };
 use pyo3::exceptions::{IndexError, ValueError};
 use pyo3::ffi;
 use pyo3::prelude::*;
-use pyo3::python::ToPyPointer;
 use pyo3::types::{PyBytes, PyDict, PyObjectRef, PySlice, PyString, PyType};
+use pyo3::AsPyPointer;
+use std::{isize, iter};
 
 #[macro_use]
 mod common;
@@ -177,7 +176,7 @@ impl PySequenceProtocol for Sequence {
 
     fn __getitem__(&self, key: isize) -> PyResult<isize> {
         if key == 5 {
-            return Err(PyErr::new::<IndexError, NoArgs>(NoArgs));
+            return Err(PyErr::new::<IndexError, _>(()));
         }
         Ok(key)
     }

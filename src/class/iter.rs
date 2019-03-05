@@ -2,15 +2,15 @@
 //! Python Iterator Interface.
 //! Trait and support implementation for implementing iterators
 
-use std::ptr;
-
 use crate::callback::{CallbackConverter, PyObjectCallbackConverter};
-use crate::conversion::IntoPyObject;
 use crate::err::PyResult;
 use crate::ffi;
 use crate::instance::PyRefMut;
-use crate::python::{IntoPyPointer, Python};
-use crate::typeob::PyTypeInfo;
+use crate::type_object::PyTypeInfo;
+use crate::IntoPyObject;
+use crate::IntoPyPointer;
+use crate::Python;
+use std::ptr;
 
 /// Python Iterator Interface.
 ///
